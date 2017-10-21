@@ -1,0 +1,26 @@
+00000000  firmware.bin
+0003f000  aux_mode.mp3
+00040400  ding_dong.mp3
+00040e00  chime.mp3
+00041100  ping.mp3
+00041600  bluetooth_mode.mp3
+00042800  fm_mode.mp3
+00043800  dit.mp3
+00043c00  zero.mp3
+00044600  one.mp3
+00045000  two.mp3
+00045a00  three.mp3
+00046600  four.mp3
+00047000  five.mp3
+00047a00  six.mp3
+00048400  seven.mp3
+00048e00  eight.mp3
+00049600  nine.mp3
+0004a000  low_battery.mp3
+0004bc00  power_off.mp3
+0004d400  ringtone.mp3
+0004e000  tf_card.mp3
+0004f800  boot_sound.mp3
+00051a00  dit_dit.mp3
+00052000  other_stuff.bin
+00100000
