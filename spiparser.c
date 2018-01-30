@@ -10,7 +10,8 @@ struct pins {
   BIT data : 1;
   BIT x2 : 2;
   BIT clk : 1;
-  BIT x3 : 2;
+  BIT x3 : 1;
+  BIT mosi : 1;
 };
 
 #define HIGH 1
@@ -96,6 +97,15 @@ int waitCLK() {
   return 0;
 }
 
+int readbyteMosi() {
+  unsigned char byte = 0;
+  for(char i = 0; i<8; i++) {
+    if (err = waitCLK()) return err;
+    byte = (byte << 1) | state.mosi;
+  }
+  if (debugflag) {printf("read a master byte %02x  \t", byte);  debugstate();}
+  return byte;
+}
 int readbyte() {
   unsigned char byte = 0;
   for(char i = 0; i<8; i++) {
@@ -107,12 +117,15 @@ int readbyte() {
 }
 #define HANDLE_ERR(x) if(x==ERR_EOF){printf("eof\n");break;} else if (x<0) {printf("error %d\n");continue;}
 int main(int argc, char **argv) {
-  int cmdbyte, adrbyte, datbyte, address, readbytes, verbose = 0;
+  int cmdbyte, adrbyte, datbyte, address, readbytes, verbose = 0, adrlength = 3;
   int maxlen = 0;
   int c;
   FILE * jsonfile = NULL;
-  while ((c = getopt(argc, argv, "dvm:r:J:")) != -1) {
+  while ((c = getopt(argc, argv, "dvm:r:J:A:")) != -1) {
     switch (c) {
+    case 'A':
+      adrlength = atoi(optarg); //address length in bytes
+      break;
     case 'v':
       verbose = 1;
       break;
@@ -148,18 +161,36 @@ int main(int argc, char **argv) {
     if (jsonfile != NULL) fprintf(jsonfile, ",\n{", cmdbyte);
     if (debugflag) {printf("loop_start  \terr=%d  \t", err);    debugstate();}
     if((err = waitforCS()) < 0) continue;
-    if((cmdbyte = readbyte()) < 0) continue;
+    if((cmdbyte = readbyteMosi()) < 0) continue;
     printf("cmd=%02X @ ",cmdbyte);debugstate();
     if (jsonfile != NULL) fprintf(jsonfile, "\"cmd\":%d,", cmdbyte);
     switch(cmdbyte) {
+    case 0x02: //write data
+      address = 0;
+      for(int adridx=0; adridx<adrlength; adridx++) {
+        address <<= 8;
+        if((adrbyte = readbyteMosi()) < 0) goto skipcmd;
+        address |= adrbyte;
+      }
+      printf(AC_RED "WRITE to addr=" AC_GREEN "0x%06x " AC_RESET , address);
+      readbytes = 0;
+      if (jsonfile != NULL) fprintf(jsonfile, "\"write_address\":%d,\"data\":\"", address);
+      while((datbyte = readbyteMosi()) >= 0) {
+        if (readbytes < maxlen) printf("%02x ", datbyte);
+        else if (readbytes == maxlen) printf("... ");
+        if (jsonfile != NULL) fprintf(jsonfile, "%02x", datbyte);
+        readbytes ++;
+      }
+      printf("len=" AC_YELLOW "%04x" AC_RESET "\n", readbytes);
+      if (jsonfile != NULL) fprintf(jsonfile, "\"}", address);
+      break;
     case 0x03: //read data
       address = 0;
-      if((adrbyte = readbyte()) < 0) continue;
-      address |= adrbyte; address <<= 8;
-      if((adrbyte = readbyte()) < 0) continue;
-      address |= adrbyte; address <<= 8;
-      if((adrbyte = readbyte()) < 0) continue;
-      address |= adrbyte;
+      for(int adridx=0; adridx<adrlength; adridx++) {
+        address <<= 8;
+        if((adrbyte = readbyteMosi()) < 0) goto skipcmd;
+        address |= adrbyte;
+      }
       printf("READ from addr=" AC_GREEN "0x%06x " AC_RESET , address);
       readbytes = 0;
       if (jsonfile != NULL) fprintf(jsonfile, "\"read_address\":%d,\"data\":\"", address);
@@ -191,8 +222,8 @@ int main(int argc, char **argv) {
       printf("\n");
       break;
     }
+skipcmd:
     err = 0;
-
 
   }
   if (jsonfile != NULL) fprintf(jsonfile, "\"err\":%d}]", err);
