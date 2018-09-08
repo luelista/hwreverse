@@ -10,7 +10,7 @@ class CommandTypes:
     PAIRING_REQUEST = 4
     STATUS_CHANGED_NOTIFICATION = 5
     CLOSE_CONNECTION = 6
-    BOOTLOADER_START_APP = 16
+    BOOTLOADER_START_APP = 16  # no parameters
     BOOTLOADER_DATA = 17
     BOOTLOADER_STATUS = 18
     #Verschlüsselt  = 128-191
@@ -38,7 +38,7 @@ class CommandTypes:
     AUTO_RELOCK_PROG_SET = 151
     LOG_REQUEST = 152
     LOG_INFO = 153
-    KEY_BLE_APPLICATION_BOOTLOADER_CALL = 154
+    KEY_BLE_APPLICATION_BOOTLOADER_CALL = 154  # no parameters
     DAYLIGHT_SAVING_TIME_OPTIONS_REQUEST = 155
     DAYLIGHT_SAVING_TIME_OPTIONS_INFO = 156
     DAYLIGHT_SAVING_TIME_OPTIONS_SET = 157
@@ -55,19 +55,19 @@ def parse_command(data, cryptoMgr):
         commandType = data[0]
     
     if commandType == CommandTypes.CONNECTION_INFO:
-        return ConnectionInfoCommand.parse(data)
+        return ConnectionInfoCommand.parse(data), data
     elif commandType == CommandTypes.PAIRING_SET:
-        return PairingSetCommand.parse(data)
+        return PairingSetCommand.parse(data), data
     elif commandType == CommandTypes.FRAGMENT_ACK:
-        return FragmentAckCommand.parse(data)
+        return FragmentAckCommand.parse(data), data
     elif commandType == CommandTypes.ANSWER_WITHOUT_SECURITY:
-        return AnswerWithoutSecurityCommand.parse(data)
+        return AnswerWithoutSecurityCommand.parse(data), data
     elif commandType == CommandTypes.ANSWER_WITH_SECURITY:
-        return AnswerWithSecurityCommand.parse(data)
+        return AnswerWithSecurityCommand.parse(data), data
     elif commandType == CommandTypes.STATUS_INFO:
-        return StatusInfoCommand.parse(data)
+        return StatusInfoCommand.parse(data), data
     else:
-        return RawCommand(commandType, data[1:])
+        return RawCommand(commandType, data[1:]), data
 
 
 class AbstractCommand:
@@ -159,8 +159,8 @@ class ConnectionInfoCommand(AbstractCommand):
         self.bootloaderVersion = bootloaderVersion
         self.applicationVersion = applicationVersion
     def __str__(self):
-        return "ConnectionInfoCommand(pairingCtr=%d, deviceNonce=%s, reserved=%d, bootloaderVersion=%d, applicationVersion=%d)" % (
-                self.pairingCtr, binascii.hexlify(self.deviceNonce), self.reserved, self.bootloaderVersion, self.applicationVersion
+        return "ConnectionInfoCommand(pairingCtr=%d, deviceNonce=%s, reserved=%d, bootloaderVersion=%s, applicationVersion=%s)" % (
+                self.pairingCtr, binascii.hexlify(self.deviceNonce), self.reserved, self.getBootloaderVersion(), self.getApplicationVersion()
         )
     def parse(data):
         if data[0] != CommandTypes.CONNECTION_INFO:
@@ -173,6 +173,10 @@ class ConnectionInfoCommand(AbstractCommand):
             applicationVersion = data[12])
     def getCommandType(self):
         return CommandTypes.CONNECTION_INFO
+    def getBootloaderVersion(self):
+        return "%d.%d" % (self.bootloaderVersion >> 4, self.bootloaderVersion & 0x0f)
+    def getApplicationVersion(self):
+        return "%d.%d" % (self.applicationVersion >> 4, self.applicationVersion & 0x0f)
 
 
 class StatusRequestCommand(AbstractCommand):
@@ -196,11 +200,25 @@ class StatusInfoCommand(AbstractCommand):
         self.applicationVersion = applicationVersion
     def __str__(self):
         return ("StatusInfoCommand(controlFlags=0x%02X (isDeviceControllable=%s, userRightType=%d), statusFlags=0x%02X (isBatteryLow=%s, isPairingEnabled=%s, isSystemTimeInvalid=%s), "+
-        "lockFlags=0x%02X (getLockStatus=%d, self.isUnlockReady=%s, self.isAutoRelockActive=%s, self.isAutoRelockByProgActive=%s), reserved=%d, bootloaderVersion=%d, applicationVersion=%d)") % (
+        "lockFlags=0x%02X (lockStatus=%d, isUnlockReady=%s, isAutoRelockActive=%s, isAutoRelockByProgActive=%s), reserved=%d, bootloaderVersion=%s, applicationVersion=%s)") % (
                 self.controlFlags, self.isDeviceControllable(), self.getUserRightType(),
                  self.statusFlags, self.isBatteryLow(), self.isPairingEnabled(), self.isSystemTimeInvalid(),
                  self.lockFlags, self.getLockStatus(), self.isUnlockReady(), self.isAutoRelockActive(), self.isAutoRelockByProgActive(),
-                 self.reserved, self.bootloaderVersion, self.applicationVersion
+                 self.reserved, self.getBootloaderVersion(), self.getApplicationVersion()
+        )
+    def display(self):
+        return ("       controlFlags: 0x%02X (isDeviceControllable=%s, userRightType=%d)\n"+
+                "        statusFlags: 0x%02X (isBatteryLow=%s, isPairingEnabled=%s, isSystemTimeInvalid=%s)\n"+
+                "          lockFlags: 0x%02X (lockStatus=%d, isUnlockReady=%s, isAutoRelockActive=%s, isAutoRelockByProgActive=%s)\n"+
+                "        lock Status: %s\n"+
+                "           reserved: %d\n"+
+                "  bootloaderVersion: %s\n"+
+                " applicationVersion: %s") % (
+                self.controlFlags, self.isDeviceControllable(), self.getUserRightType(),
+                 self.statusFlags, self.isBatteryLow(), self.isPairingEnabled(), self.isSystemTimeInvalid(),
+                 self.lockFlags, self.getLockStatus(), self.isUnlockReady(), self.isAutoRelockActive(), self.isAutoRelockByProgActive(),
+                 self.getLockStatusStr(),
+                 self.reserved, self.getBootloaderVersion(), self.getApplicationVersion()
         )
     def parse(data):
         if data[0] != CommandTypes.STATUS_INFO:
@@ -216,6 +234,16 @@ class StatusInfoCommand(AbstractCommand):
         return CommandTypes.STATUS_INFO
     def getLockStatus(self):
         return self.lockFlags & 0x07
+    def getLockStatusStr(self):
+        if self.getLockStatus() == StatusInfoCommand.STATUS_MOVING: return "Moving"
+        if self.getLockStatus() == StatusInfoCommand.STATUS_UNLOCKED: return "Unlocked"
+        if self.getLockStatus() == StatusInfoCommand.STATUS_LOCKED: return "Locked"
+        if self.getLockStatus() == StatusInfoCommand.STATUS_OPENED: return "Open"
+    STATUS_MOVING=1
+    STATUS_UNLOCKED=2 #or unknown???
+    STATUS_LOCKED=3
+    STATUS_OPENED=4
+
     def isAutoRelockActive(self):
         return (self.lockFlags & 16) != 0
     def isAutoRelockByProgActive(self):
@@ -234,6 +262,11 @@ class StatusInfoCommand(AbstractCommand):
         return (self.controlFlags & 64) != 0
     def getUserRightType(self):
         return (self.controlFlags & 48) >> 4
+
+    def getBootloaderVersion(self):
+        return "%d.%d" % (self.bootloaderVersion >> 4, self.bootloaderVersion & 0x0f)
+    def getApplicationVersion(self):
+        return "%d.%d" % (self.applicationVersion >> 4, self.applicationVersion & 0x0f)
 
 class SecureCommand(AbstractCommand):
     def __init__(self, commandType, encryptedData, securityCounter, authValue):
