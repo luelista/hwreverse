@@ -19,27 +19,27 @@ EXITCODE_PAIRING_FAILED=5
 exitcode=EXITCODE_UNKNOWN
 
 parser = argparse.ArgumentParser(description='Communicate with eqiva smartlock.')
-parser.add_argument('--pair', metavar='QRDATA',
+parser.add_argument('-P', '--pair', metavar='QRDATA',
                     help='contents of the QR code from the key card')
-parser.add_argument('--adapter', default='hci0',
+parser.add_argument('-a', '--adapter', default='hci0',
                     help='bluetooth adapter name')
 parser.add_argument('--timeout', default='10', type=float,
                     help='timeout in seconds')
-parser.add_argument('--lock', action="store_true",
+parser.add_argument('-L', '--lock', action="store_true",
                     help='lock the door')
-parser.add_argument('--unlock', action="store_true",
+parser.add_argument('-U', '--unlock', action="store_true",
                     help='unlock the door')
-parser.add_argument('--open', action="store_true",
+parser.add_argument('-O', '--open', action="store_true",
                     help='open the door')
-parser.add_argument('--status', action="store_true",
+parser.add_argument('-S', '--status', action="store_true",
                     help='request status information')
 parser.add_argument('--status-interval', type=int, default=0,
                     help='request status information periodically')
 parser.add_argument('--send-raw',
                     help='send raw packet')
-parser.add_argument('--verbose', action="store_true",
+parser.add_argument('-v', '--verbose', action="store_true",
                     help='display debug info')
-parser.add_argument('--notify', action="store_true",
+parser.add_argument('-n', '--notify', action="store_true",
                     help="dont quit after receiving statusinfo, but keep notifying of new statuses")
 args = parser.parse_args()
 logging.basicConfig(level='DEBUG' if args.verbose else 'INFO', format='%(asctime)s | %(levelname)s\t %(message)s')
