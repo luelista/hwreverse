@@ -1,5 +1,6 @@
 from abc import abstractmethod
 import struct, binascii, datetime
+from fragmentation import chunks
 class CommandTypes:
     #Command Types
     #Nicht verschlüsselt:
@@ -64,6 +65,8 @@ def parse_command(data, cryptoMgr):
         return AnswerWithoutSecurityCommand.parse(data), data
     elif commandType == CommandTypes.ANSWER_WITH_SECURITY:
         return AnswerWithSecurityCommand.parse(data), data
+    elif commandType == CommandTypes.USER_LIST_INFO:
+        return UserListInfoCommand.parse(data), data
     elif commandType == CommandTypes.STATUS_INFO:
         return StatusInfoCommand.parse(data), data
     else:
@@ -106,6 +109,7 @@ class RawCommand(AbstractCommand):
 RawCommand.COMMAND_LOCK = RawCommand(CommandTypes.COMMAND, bytes([RawCommand.ACTION_CODE_LOCK]))
 RawCommand.COMMAND_UNLOCK = RawCommand(CommandTypes.COMMAND, bytes([RawCommand.ACTION_CODE_UNLOCK]))
 RawCommand.COMMAND_OPEN = RawCommand(CommandTypes.COMMAND, bytes([RawCommand.ACTION_CODE_OPEN]))
+RawCommand.USER_LIST_REQUEST = RawCommand(CommandTypes.USER_LIST_REQUEST, bytes([]))
 
 class AnswerCommand(AbstractCommand):
     def __init__(self, flags):
@@ -309,6 +313,36 @@ class PairingRequestCommand(AbstractCommand):
         return struct.pack("!B22sH4s", 
                 self.pairingCtr, self.encryptedData, self.securityCounter, self.authValue)
 
+
+class UserListInfoCommand(AbstractCommand):
+    def __init__(self, user_list):
+        self.user_list = user_list
+    def __str__(self):
+        return "UserListInfoCommand(%s)" % (
+                "; ".join(["%d(%s): \"%s\""%(u['userNumber'], UserListInfoCommand.MODES_STRINGS[u['mode']], u['name']) for u in self.user_list])
+        )
+    
+    def parse(data):
+        if data[0] != CommandTypes.USER_LIST_INFO:
+            raise "Invalid command type"
+        users = chunks(data[1:], 21)
+        user_list = []
+        for user_bin in users:
+            if len(user_bin) < 21: break
+            flags, name = struct.unpack("!B20s", user_bin)
+            user_list.append({'mode': (flags&0xf0) >> 4, 'userNumber':flags& 0x0f, 'name': name.rstrip(b"\0").decode('utf8')})
+        return UserListInfoCommand(user_list)
+            #3=admin
+            #2=berechtigt
+            #0=gesperrt
+            #4=geloescht
+            #1=wochenprofil
+    MODE_DELETED=4
+    MODE_ADMIN=3
+    MODE_USER=2 #berechtigt
+    MODE_TIMER=1 #wochenprofil, zeitgesteuerte berechtigung
+    MODE_BLOCKED=0
+    MODES_STRINGS=["blocked","timed","user","admin","deleted"]
 
 class PairingSetCommand(AbstractCommand):
     def __init__(self, success):

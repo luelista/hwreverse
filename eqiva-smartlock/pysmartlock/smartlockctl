@@ -33,6 +33,8 @@ parser.add_argument('-O', '--open', action="store_true",
                     help='open the door')
 parser.add_argument('-S', '--status', action="store_true",
                     help='request status information')
+parser.add_argument('--user-list', action="store_true",
+                    help='request user list')
 parser.add_argument('--status-interval', type=int, default=0,
                     help='request status information periodically')
 parser.add_argument('--send-raw',
@@ -57,7 +59,7 @@ if 'device' in config and args.pair == None:
     macAddress = config['device']['macAddress']
     userId = int(config['device']['userId'])
     deviceKey = unhexlify(config['device']['deviceKey'])
-    logging.debug("Config file read, macAddress=%s, userId=%d", macAddress, userId)
+    logging.info("Config file read, macAddress=%s, userId=%d", macAddress, userId)
 else:
     logging.debug("Config file read, no connection info found")
     if args.pair == None:
@@ -80,6 +82,9 @@ manager = gatt.DeviceManager(adapter_name=args.adapter)
 logging.debug("Done")
 
 class AnyDevice(gatt.Device):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.resend_ack_timer = None
     def connect_succeeded(self):
         super().connect_succeeded()
         logging.debug("[%s] Connected" % (self.mac_address))
@@ -145,11 +150,21 @@ class AnyDevice(gatt.Device):
         logging.debug("> Frag %s",hexlify(frag))
         self.tx_characteristic.write_value(frag)
 
+    def resend_ack(self):
+        logging.debug("Resending ACK")
+        self.send_command(self.last_ack)
+        return True
+
     def characteristic_value_updated(self, characteristic, value):
+        if self.resend_ack_timer:
+            GObject.source_remove(self.resend_ack_timer)
+            self.resend_ack_timer = None
         logging.debug("< Frag %s", hexlify(value))
         sendAck, packetData = self.defrag.handle(value)
         if sendAck:
-            self.send_command(FragmentAckCommand(value[0]))
+            self.last_ack = FragmentAckCommand(value[0])
+            self.send_command(self.last_ack)
+            self.resend_ack_timer = GObject.timeout_add(400, self.resend_ack)
         if packetData:
             command, raw_data = parse_command(packetData, self.cryptoMgr)
             logging.debug("< Raw packet: %s",hexlify(raw_data))
@@ -157,7 +172,8 @@ class AnyDevice(gatt.Device):
 
     def action_timeout(self):
         logging.warning("Timeout, disconnecting")
-        self.disconnect()
+        ##self.disconnect()
+        manager.stop()
         return False
 
     def statusinterval_timeout(self):
@@ -168,6 +184,7 @@ class AnyDevice(gatt.Device):
     def on_conn_success(self):
         global exitcode
         no_action=False
+        timeout_delay=2500
         if args.open:
             self.send_command(RawCommand.COMMAND_OPEN)
         elif args.unlock:
@@ -179,6 +196,9 @@ class AnyDevice(gatt.Device):
             GObject.timeout_add(args.status_interval, self.statusinterval_timeout)
         elif args.status:
             self.send_command(StatusRequestCommand())
+        elif args.user_list:
+            self.send_command(RawCommand.USER_LIST_REQUEST)
+            timeout_delay=5000
         elif args.send_raw:
             bd=unhexlify(args.send_raw)
             self.send_command(RawCommand(bd[0], bd[1:]))
@@ -188,7 +208,7 @@ class AnyDevice(gatt.Device):
             logging.debug("Waiting for further status info")
             cancel_global_timeout()
         if not no_action:
-            self.action_timeout_id = GObject.timeout_add(2500, self.action_timeout)
+            self.action_timeout_id = GObject.timeout_add(timeout_delay, self.action_timeout)
         exitcode=EXITCODE_SUCCESS
         #self.send_command(RawCommand.COMMAND_OPEN)
         #self.send_command(StatusRequestCommand())
@@ -230,6 +250,13 @@ class AnyDevice(gatt.Device):
         if command.getCommandType() == CommandTypes.STATUS_CHANGED_NOTIFICATION:
             logging.debug("Status has changed, requesting status information")
             self.send_command(StatusRequestCommand())
+        if isinstance(command, UserListInfoCommand):
+            GObject.source_remove(self.action_timeout_id)
+            exitcode=EXITCODE_SUCCESS
+            logging.info("User list received")
+            for user in command.user_list:
+                logging.info("% 2d  % -10s  %s", user["userNumber"], UserListInfoCommand.MODES_STRINGS[user["mode"]], user["name"])
+            self.disconnect()
         if isinstance(command, StatusInfoCommand):
             GObject.source_remove(self.action_timeout_id)
             exitcode=EXITCODE_SUCCESS
