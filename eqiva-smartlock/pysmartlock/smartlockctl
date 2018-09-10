@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
+import logging
+#logging.basicConfig(level='DEBUG', format='%(asctime)s | %(levelname)s\t %(message)s')
+#logging.info("aaa")
 
-import gatt
 from binascii import hexlify, unhexlify
 from command import *
 from fragmentation import Defragmenter, fragment_command
 from cryptomgr import CryptoMgr, parse_pairing_code
 import configparser, argparse, sys
-from gi.repository import GObject
-
 
 EXITCODE_SUCCESS=0
 EXITCODE_UNKNOWN=1
@@ -42,6 +42,13 @@ parser.add_argument('--verbose', action="store_true",
 parser.add_argument('--notify', action="store_true",
                     help="dont quit after receiving statusinfo, but keep notifying of new statuses")
 args = parser.parse_args()
+logging.basicConfig(level='DEBUG' if args.verbose else 'INFO', format='%(asctime)s | %(levelname)s\t %(message)s')
+logging.debug("Logging started")
+
+import gatt
+from gi.repository import GObject
+
+logging.debug("BT library loaded")
 
 config = configparser.ConfigParser()
 config.read('keyble.ini')
@@ -50,7 +57,9 @@ if 'device' in config and args.pair == None:
     macAddress = config['device']['macAddress']
     userId = int(config['device']['userId'])
     deviceKey = unhexlify(config['device']['deviceKey'])
+    logging.debug("Config file read, macAddress=%s, userId=%d", macAddress, userId)
 else:
+    logging.debug("Config file read, no connection info found")
     if args.pair == None:
         qrCodeString = input("Please scan the pairing QR code. Long press the unlock button to enable pairing mode. Then enter the scanned data from QR code (should start with letter M)\nQR Data: ")
     else:
@@ -66,25 +75,26 @@ def saveconfig():
         config.write(configfile)
 
 
-
+logging.debug("Initializing DeviceManager...")
 manager = gatt.DeviceManager(adapter_name=args.adapter)
+logging.debug("Done")
 
 class AnyDevice(gatt.Device):
     def connect_succeeded(self):
         super().connect_succeeded()
-        if args.verbose: print("[%s] Connected" % (self.mac_address))
+        logging.debug("[%s] Connected" % (self.mac_address))
 
     def connect_failed(self, error):
         global exitcode
         super().connect_failed(error)
-        print("[%s] Connection failed: %s" % (self.mac_address, str(error)))
+        logging.error("[%s] Connection failed: %s" % (self.mac_address, str(error)))
         exitcode=EXITCODE_CONNECT_FAILED
         manager.stop()
 
     def disconnect_succeeded(self):
         global exitcode
         super().disconnect_succeeded()
-        if args.verbose: print("[%s] Disconnected" % (self.mac_address))
+        logging.info("[%s] Disconnected" % (self.mac_address))
         if exitcode==EXITCODE_UNKNOWN: exitcode=EXITCODE_DISCONNECT_WITHOUT_ACTION
         manager.stop()
 
@@ -95,11 +105,11 @@ class AnyDevice(gatt.Device):
         self.defrag = Defragmenter()
         self.cryptoMgr = CryptoMgr(deviceKey)
 
-        if args.verbose: print("[%s] Resolved services" % (self.mac_address))
+        logging.debug("[%s] Resolved services" % (self.mac_address))
         for service in self.services:
-            if args.verbose: print("[%s]  Service [%s]" % (self.mac_address, service.uuid))
+            logging.debug("[%s]  Service [%s]" % (self.mac_address, service.uuid))
             for characteristic in service.characteristics:
-                if args.verbose: print("[%s]    Characteristic [%s]" % (self.mac_address, characteristic.uuid))
+                logging.debug("[%s]    Characteristic [%s]" % (self.mac_address, characteristic.uuid))
         
 
         keyble_service = next(
@@ -118,12 +128,12 @@ class AnyDevice(gatt.Device):
         self.send_command(ConnectionRequestCommand(userId, self.cryptoMgr.applicationNonce))
     
     def send_command(self, command):
-         if args.verbose: print("> Cmd" , command , command.serialize().hex())
+         logging.debug("> Cmd  %s  %s" , command , command.serialize().hex())
          if is_encrypted_command_type(command.getCommandType()):
              #print("")
              #print("java testcryptomgr "+command.getCommandData().hex()+" "+self.cryptoMgr.deviceNonce.hex()+" "+self.cryptoMgr.applicationNonce.hex()+" "+self.cryptoMgr.pairingKey.hex())
              command = self.cryptoMgr.encrypt_packet(command)
-             if args.verbose: print("> Encrypted ",command)
+             logging.debug("> Encrypted %s",command)
          fragments = fragment_command(command)
          #for fragment in fragments:
          #    self.tx_characteristic.write_value(fragment)
@@ -132,26 +142,26 @@ class AnyDevice(gatt.Device):
         
     def send_next_fragment(self):
         frag = self.fragments_to_send.pop(0)
-        if args.verbose: print("> Frag ",hexlify(frag))
+        logging.debug("> Frag %s",hexlify(frag))
         self.tx_characteristic.write_value(frag)
 
     def characteristic_value_updated(self, characteristic, value):
-        if args.verbose: print("< Frag ", hexlify(value))
+        logging.debug("< Frag %s", hexlify(value))
         sendAck, packetData = self.defrag.handle(value)
         if sendAck:
             self.send_command(FragmentAckCommand(value[0]))
         if packetData:
             command, raw_data = parse_command(packetData, self.cryptoMgr)
-            print("< Raw packet: ",hexlify(raw_data))
+            logging.debug("< Raw packet: %s",hexlify(raw_data))
             self.handle_command(command)
 
     def action_timeout(self):
-        print("Timeout, disconnecting")
+        logging.warning("Timeout, disconnecting")
         self.disconnect()
         return False
 
     def statusinterval_timeout(self):
-        print("Requesting status info")
+        logging.debug("Requesting status info")
         self.send_command(StatusRequestCommand())
         return True
 
@@ -175,7 +185,7 @@ class AnyDevice(gatt.Device):
         else: 
             no_action=True
         if args.notify:
-            print("Waiting for further status info")
+            logging.debug("Waiting for further status info")
             cancel_global_timeout()
         if not no_action:
             self.action_timeout_id = GObject.timeout_add(2500, self.action_timeout)
@@ -186,17 +196,19 @@ class AnyDevice(gatt.Device):
 
     def handle_command(self, command):
         global exitcode
-        if args.verbose: print("< Cmd ",command )
+        logging.debug("< Cmd %s",command )
         if isinstance(command, FragmentAckCommand):
             self.send_next_fragment()
         if isinstance(command, ConnectionInfoCommand):
             self.cryptoMgr.deviceNonce = command.deviceNonce
+            if command.pairingCtr == 0xff:
+                logging.info("ERROR: connection failed\nto pair device, push the UNLOCK button until LED flashes, then try again")
             if command.pairingCtr == userId:
                 # already connected/paired
                 self.on_conn_success()
             else:
                 # pairing required:
-                print("Starting pairing process ...")
+                logging.info("Starting pairing process ...")
                 req=self.cryptoMgr.generate_pairing_request(command.pairingCtr, pairingData['key'])
                 config['device']['userId'] = str(command.pairingCtr)
                 config['device']['deviceKey'] = self.cryptoMgr.pairingKey.hex()
@@ -208,38 +220,40 @@ class AnyDevice(gatt.Device):
                 self.send_command(req)
         if isinstance(command, AnswerWithoutSecurityCommand):
             if command.isSuccess():
-                print("Pairing succeeded!")
+                logging.info("Pairing succeeded!")
                 saveconfig()
                 self.on_conn_success()
             else:
-                print("ERROR: Pairing failed, wrong key/pairing not enabled?")
+                logging.error("ERROR: Pairing failed, wrong key/pairing not enabled?")
                 exitcode=EXITCODE_PAIRING_FAILED
                 self.disconnect()
         if command.getCommandType() == CommandTypes.STATUS_CHANGED_NOTIFICATION:
-            if args.verbose: print("Status has changed, requesting status information")
+            logging.debug("Status has changed, requesting status information")
             self.send_command(StatusRequestCommand())
         if isinstance(command, StatusInfoCommand):
             GObject.source_remove(self.action_timeout_id)
             exitcode=EXITCODE_SUCCESS
-            print("Status info received:\n"+command.display())
+            logging.info("Status info received:\n"+command.display())
             if not args.notify:
-                print("Received status info, disconnecting")
+                logging.info("Received status info, disconnecting")
                 self.disconnect()
 
 
 #firmware_version_characteristic.read_value()
 
 def global_timeout():
-    print("Timeout reached, exiting")
+    logging.warning("Timeout reached, exiting")
     sys.exit(EXITCODE_TIMEOUT)
 def cancel_global_timeout():
     GObject.source_remove(global_timeout_id)
 global_timeout_id = GObject.timeout_add(args.timeout*1000, global_timeout)
 
 
+logging.debug("Initializing BT device class...")
 device = AnyDevice(mac_address=macAddress, manager=manager)
+logging.debug("Connecting...")
 device.connect()
-
+logging.debug("Running BT device manager...")
 manager.run()
 
 sys.exit(exitcode)
