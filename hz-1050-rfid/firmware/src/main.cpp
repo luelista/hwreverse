@@ -9,6 +9,8 @@ void setup()
   // initialize LED digital pin as an output.
   pinMode(PIN_PD2, OUTPUT);
 
+
+  ////////////////////////////////////////////////////////////////
   // Initialize Pin B3: 125kHz square wave generation using 
   // alternate function OC2 (Timer/Counter2 Output Compare Match Output)
   pinMode(PIN_PB3, OUTPUT);
@@ -28,6 +30,11 @@ void setup()
   OCR2 = 32;    // = 8 MHz / 125kHz 
 
 
+  ////////////////////////////////////////////////////////////////
+  // Initialize Pin B0: input modulated data from card
+  pinMode(PIN_PB0, INPUT);
+
+  // TODO: configure ICP1 (Timer/Counter1 Input Capture Pin)
 
 }
 
