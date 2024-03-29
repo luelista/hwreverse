@@ -3,6 +3,9 @@ HZ-1050 RFID card reader 125 kHz
 
 Uses an ATmega8A microcontroller
 
+Initial Fuses (not sure about lock, accidentally erased the flash -.-):
+lfuse = 0x3fc0, hfuse = 0x9966, lock = 0xff00
+
 Pin usage:
 
 |Pin|Mode|Function|
@@ -18,5 +21,9 @@ Pin usage:
 
 
 
+
+Other components:
+* LM358 OP AMP
+* 8 MHz crystal
 
 
