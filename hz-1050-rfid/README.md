@@ -1,10 +1,15 @@
 HZ-1050 RFID card reader 125 kHz
 ====================================
 
-Uses an ATmega8A microcontroller
+Simple RFID card reader for 125 kHz proxcards. Default firmware outputs the card serial number over UART and Wiegand.
 
-Initial Fuses (not sure about lock, accidentally erased the flash -.-):
-lfuse = 0x3fc0, hfuse = 0x9966, lock = 0xff00
+Uses an ATmega8A microcontroller.
+
+Initial Fuses :
+
+- lfuse = 0x3fc0
+- hfuse = 0x9966
+- lock = 0xff00 *(not sure about lock, accidentally erased the flash -.-)*
 
 Pin usage:
 
@@ -23,7 +28,10 @@ Pin usage:
 
 
 Other components:
+
 * LM358 OP AMP
 * 8 MHz crystal
+
+
 
 
